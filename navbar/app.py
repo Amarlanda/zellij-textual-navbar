@@ -59,6 +59,7 @@ class NavbarApp(App):
         Binding("v", "split_vertical", "Split │"),
         Binding("x", "close_pane", "Close Pane"),
         Binding("t", "toggle_debug", "Debug"),
+        Binding("b", "toggle_sidebar", "Toggle Sidebar"),
     ]
 
     tab_count: reactive[int] = reactive(3)
@@ -66,6 +67,7 @@ class NavbarApp(App):
     session_name: reactive[str] = reactive("main")
     debug_mode: reactive[bool] = reactive(False)
     clock_time: reactive[str] = reactive("")
+    sidebar_visible: reactive[bool] = reactive(True)
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="main-layout"):
@@ -156,6 +158,17 @@ class NavbarApp(App):
             activity.show_debug("Debug mode enabled")
         else:
             activity.update_activity(f"Tab {self.active_tab + 1}", "bash")
+
+    # --- Sidebar toggle ---
+
+    def action_toggle_sidebar(self) -> None:
+        """Toggle sidebar visibility. Zellij: Alt+b (custom)."""
+        self.sidebar_visible = not self.sidebar_visible
+
+    def watch_sidebar_visible(self, value: bool) -> None:
+        """Show/hide the sidebar."""
+        sidebar = self.query_one("#sidebar")
+        sidebar.display = value
 
     # --- Pane actions (Zellij pane mode) ---
 
