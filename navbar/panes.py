@@ -174,6 +174,22 @@ class PaneNode:
 
 
 # ---------------------------------------------------------------------------
+# TabState — saved state for a tab's pane layout
+# ---------------------------------------------------------------------------
+
+@dataclass
+class TabState:
+    """Saved state for one tab's pane layout.
+
+    Each tab owns its own pane tree and remembers focus and pane data.
+    """
+    tree: PaneNode
+    focused_pane_id: str
+    pane_counter: int
+    saved_pane_data: dict = field(default_factory=dict)  # pane_id → (name, cmd, output)
+
+
+# ---------------------------------------------------------------------------
 # PaneContainer — manages the visual layout of panes
 # ---------------------------------------------------------------------------
 
@@ -202,6 +218,12 @@ class PaneContainer(Container):
             self.pane_name = pane_name
             super().__init__()
 
+    class TabSwitched(Message):
+        """Emitted when the active tab changes in the pane container."""
+        def __init__(self, tab_index: int) -> None:
+            self.tab_index = tab_index
+            super().__init__()
+
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self._pane_counter = 0
@@ -209,6 +231,9 @@ class PaneContainer(Container):
         self._focused_pane_id: str = self._tree.pane_id or ""
         self._panes: dict[str, Pane] = {}
         self._pending_commands: dict[str, str] = {}  # pane_id → command to run after rebuild
+        # Tab ownership
+        self._active_tab: int = 0
+        self._tab_states: dict[int, TabState] = {}  # tab_index → TabState
 
     def _next_pane_id(self) -> str:
         """Generate a unique pane ID."""
@@ -462,3 +487,82 @@ class PaneContainer(Container):
     async def run_command_in_focused(self, command: str) -> bool:
         """Run a command in the currently focused pane."""
         return await self.run_command_in_pane(self._focused_pane_id, command)
+
+    # --- Tab ownership ---
+
+    @property
+    def active_tab(self) -> int:
+        """Return the currently active tab index."""
+        return self._active_tab
+
+    def _save_current_tab(self) -> None:
+        """Save the current tab's pane state."""
+        saved: dict[str, tuple[str, str, str]] = {}
+        for pid, pane in self._panes.items():
+            saved[pid] = (pane.pane_name, pane.command, pane.command_output)
+
+        self._tab_states[self._active_tab] = TabState(
+            tree=self._tree,
+            focused_pane_id=self._focused_pane_id,
+            pane_counter=self._pane_counter,
+            saved_pane_data=saved,
+        )
+
+    async def switch_tab(self, tab_index: int) -> None:
+        """Switch to a different tab's pane layout.
+
+        Saves the current tab's state, loads the target tab's state
+        (or creates a fresh single-pane layout for new tabs), and
+        rebuilds the visual layout.
+        """
+        if tab_index == self._active_tab:
+            return
+
+        # Save current tab
+        self._save_current_tab()
+
+        # Load target tab
+        self._active_tab = tab_index
+
+        if tab_index in self._tab_states:
+            # Restore saved state
+            state = self._tab_states[tab_index]
+            self._tree = state.tree
+            self._focused_pane_id = state.focused_pane_id
+            self._pane_counter = state.pane_counter
+
+            # Rebuild with saved data
+            await self.remove_children()
+            self._panes.clear()
+            widget = self._build_widget(self._tree, state.saved_pane_data)
+            await self.mount(widget)
+
+            if self._focused_pane_id in self._panes:
+                self._panes[self._focused_pane_id].is_focused_pane = True
+        else:
+            # New tab — fresh single pane
+            new_id = self._next_pane_id()
+            self._tree = PaneNode(pane_id=new_id)
+            self._focused_pane_id = new_id
+
+            await self.remove_children()
+            self._panes.clear()
+            num = new_id.split("-")[-1]
+            pane = self._create_pane(new_id, f"Pane {num}", is_focused=True)
+            await self.mount(pane)
+
+        self.post_message(self.PaneCountChanged(self.pane_count))
+        self.post_message(self.TabSwitched(tab_index))
+
+    def remove_tab_state(self, tab_index: int) -> None:
+        """Remove saved state for a tab (when tab is closed)."""
+        self._tab_states.pop(tab_index, None)
+
+    def get_tab_pane_count(self, tab_index: int) -> int:
+        """Get the pane count for a specific tab."""
+        if tab_index == self._active_tab:
+            return self.pane_count
+        state = self._tab_states.get(tab_index)
+        if state:
+            return len(state.tree.all_pane_ids())
+        return 1  # Default for new tabs

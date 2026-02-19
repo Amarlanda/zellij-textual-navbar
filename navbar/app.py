@@ -107,22 +107,30 @@ class NavbarApp(App):
         clock.update_time(self.clock_time)
 
     def _build_tabs(self) -> None:
-        """Build the initial tab list."""
+        """Build the initial tab list.
+
+        Each tab starts with 1 pane. Pane counts update dynamically
+        as panes are split/closed.
+        """
         tab_list = self.query_one("#tab-list", TabList)
         tab_list.clear_tabs()
         for i in range(self.tab_count):
             tab_list.add_tab(
                 name=f"Tab {i + 1}",
                 is_active=(i == self.active_tab),
-                pane_count=max(1, (i % 3) + 1),
+                pane_count=1,
             )
 
     def watch_active_tab(self, old: int, new: int) -> None:
-        """React to active tab changes."""
+        """React to active tab changes — switch pane layout too."""
         tab_list = self.query_one("#tab-list", TabList)
         tab_list.set_active(new)
         activity = self.query_one("#activity-bar", ActivityBar)
         activity.update_activity(f"Tab {new + 1}", "bash")
+
+        # Switch the pane container to this tab's pane tree
+        pc = self.query_one("#pane-container", PaneContainer)
+        self.call_later(pc.switch_tab, new)
 
     # --- Tab actions ---
 
