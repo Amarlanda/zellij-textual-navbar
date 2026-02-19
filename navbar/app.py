@@ -125,8 +125,11 @@ class NavbarApp(App):
     def _update_clock(self) -> None:
         """Update the clock display."""
         self.clock_time = datetime.now().strftime("%H:%M:%S")
-        clock = self.query_one("#clock", ClockWidget)
-        clock.update_time(self.clock_time)
+        try:
+            clock = self.query_one("#clock", ClockWidget)
+            clock.update_time(self.clock_time)
+        except Exception:
+            pass  # Clock widget may not be in DOM yet or sidebar hidden
 
     def _build_tabs(self) -> None:
         """Build the initial tab list.
