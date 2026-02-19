@@ -80,7 +80,7 @@ class Pane(Static):
         if self.command_output:
             lines.append(self.command_output)
         if not self.command and not self.command_output:
-            lines.append("(empty)")
+            lines.append("$ ")
 
         return "\n".join(lines)
 

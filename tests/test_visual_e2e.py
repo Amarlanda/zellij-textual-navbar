@@ -60,6 +60,18 @@ class TestModeTransitions:
             await pilot.pause(VISIBLE_PAUSE)
             assert app.current_mode == "normal"
 
+            # Normal → Insert (i)
+            await pilot.press("i")
+            await pilot.pause(VISIBLE_PAUSE)
+            assert app.current_mode == "insert"
+            assert "INSERT" in mb.mode_label
+
+            # Insert → Normal (escape) — status bar should change back to green
+            await pilot.press("escape")
+            await pilot.pause(VISIBLE_PAUSE)
+            assert app.current_mode == "normal"
+            assert "NORMAL" in mb.mode_label
+
             # Normal → Tab (t)
             await pilot.press("t")
             await pilot.pause(VISIBLE_PAUSE)
@@ -69,6 +81,8 @@ class TestModeTransitions:
             # Tab → Normal (escape)
             await pilot.press("escape")
             await pilot.pause(VISIBLE_PAUSE)
+            assert app.current_mode == "normal"
+            assert "NORMAL" in mb.mode_label
 
             # Normal → Resize (n)
             await pilot.press("n")
@@ -79,6 +93,8 @@ class TestModeTransitions:
             # Resize → Normal (escape)
             await pilot.press("escape")
             await pilot.pause(VISIBLE_PAUSE)
+            assert app.current_mode == "normal"
+            assert "NORMAL" in mb.mode_label
 
             # Normal → Session (o)
             await pilot.press("o")
@@ -146,16 +162,30 @@ class TestFullWorkflow:
             assert pc.pane_count == 2
             assert app.current_mode == "normal"  # Auto-returns
 
-            # 5. Run a command in the focused pane
-            await pc.run_command_in_focused('echo "hello from pane"')
-            await pilot.pause()
+            # 5. Enter insert mode and type a command
+            await pilot.press("i")
+            await pilot.pause(VISIBLE_PAUSE)
+            assert app.current_mode == "insert"
+            assert "INSERT" in mb.mode_label
+
+            # Type "echo hello" character by character
+            for ch in "echo hello":
+                await pilot.press(ch)
             await pilot.pause(VISIBLE_PAUSE)
 
             pane = pc.get_pane(pc.focused_pane_id)
             assert pane is not None
-            assert "hello from pane" in pane.command_output
+            assert pane.command == "echo hello"
 
-            # 6. Split again and run another command
+            # Press Enter to execute
+            await pilot.press("enter")
+            await pilot.pause()
+            await pilot.pause()
+            await pilot.pause(VISIBLE_PAUSE)
+            assert app.current_mode == "normal"
+            assert "hello" in pane.command_output
+
+            # 6. Split again and type another command via insert mode
             await pilot.press("p")
             await pilot.pause()
             await pilot.press("d")
@@ -163,7 +193,11 @@ class TestFullWorkflow:
             await pilot.pause()
             assert pc.pane_count == 3
 
-            await pc.run_command_in_focused("date")
+            await pilot.press("i")
+            await pilot.pause()
+            for ch in "date":
+                await pilot.press(ch)
+            await pilot.press("enter")
             await pilot.pause()
             await pilot.pause(VISIBLE_PAUSE)
 

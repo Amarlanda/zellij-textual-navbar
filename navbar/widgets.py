@@ -205,3 +205,5 @@ class ModeBar(Static):
         self.styles.background = color
         # Use dark text for light backgrounds
         self.styles.color = "#1d2021"
+        # Force a full repaint to ensure color change is visible
+        self.refresh()

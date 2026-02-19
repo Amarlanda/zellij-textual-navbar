@@ -48,7 +48,8 @@ from navbar.widgets import (
 # ---------------------------------------------------------------------------
 
 MODES = {
-    "normal":  {"label": " NORMAL ",  "color": "#89b482", "keys": "p=Pane  t=Tab  n=Resize  o=Session  q=Quit  b=Sidebar"},
+    "normal":  {"label": " NORMAL ",  "color": "#89b482", "keys": "i=Insert  p=Pane  t=Tab  n=Resize  o=Session  q=Quit  b=Sidebar"},
+    "insert":  {"label": " INSERT ",  "color": "#ea6962", "keys": "Type commands in the focused pane  Esc=Normal"},
     "pane":    {"label": " PANE ",    "color": "#d8a657", "keys": "d=Split↓  v=Split→  x=Close  h/j/k/l=Focus  Esc=Normal"},
     "tab":     {"label": " TAB ",     "color": "#7daea3", "keys": "n=New  r=Rename  1-9=Jump  h/l=Prev/Next  Esc=Normal"},
     "resize":  {"label": " RESIZE ",  "color": "#d3869b", "keys": "+/-=Grow/Shrink  h/j/k/l=Direction  Esc=Normal"},
@@ -114,6 +115,7 @@ class NavbarApp(App):
 
     def on_mount(self) -> None:
         """Initialize the app state after mounting."""
+        self._insert_buffer: str = ""
         self._clock_timer: Timer = self.set_interval(1.0, self._update_clock)
         self._update_clock()
         self._build_tabs()
@@ -161,9 +163,15 @@ class NavbarApp(App):
     def watch_current_mode(self, old: str, new: str) -> None:
         """React to mode changes — update the status bar."""
         try:
-            self._update_mode_bar()
+            mode_bar = self.query_one("#mode-bar", ModeBar)
         except Exception:
-            pass  # Ignore during mount
+            return  # Not mounted yet
+        mode_info = MODES.get(new, MODES["normal"])
+        mode_bar.set_mode(
+            mode_info["label"],
+            mode_info["color"],
+            mode_info["keys"],
+        )
 
     def _set_mode(self, mode: str) -> None:
         """Switch to a new mode."""
@@ -189,6 +197,8 @@ class NavbarApp(App):
 
         if mode == "normal":
             self._handle_normal_key(key, char, event)
+        elif mode == "insert":
+            self._handle_insert_key(key, char, event)
         elif mode == "pane":
             self._handle_pane_key(key, char, event)
         elif mode == "tab":
@@ -201,6 +211,7 @@ class NavbarApp(App):
     def _handle_normal_key(self, key: str, char: str | None, event) -> None:
         """NORMAL mode keys — mode switching and global shortcuts.
 
+        i = enter Insert mode (type in focused pane)
         p = enter Pane mode
         t = enter Tab mode
         n = enter Resize mode
@@ -211,6 +222,10 @@ class NavbarApp(App):
         if char == "q":
             event.prevent_default()
             self.exit()
+        elif char == "i":
+            event.prevent_default()
+            self._set_mode("insert")
+            self._insert_buffer = ""
         elif char == "p":
             event.prevent_default()
             self._set_mode("pane")
@@ -226,6 +241,35 @@ class NavbarApp(App):
         elif char == "b":
             event.prevent_default()
             self.action_toggle_sidebar()
+
+    def _handle_insert_key(self, key: str, char: str | None, event) -> None:
+        """INSERT mode — type commands into the focused pane.
+
+        Characters are buffered. Enter executes the command.
+        Backspace deletes. Escape returns to normal mode.
+        """
+        event.prevent_default()
+        pc = self.query_one("#pane-container", PaneContainer)
+        pane = pc.get_pane(pc.focused_pane_id)
+        if pane is None:
+            return
+
+        if key == "enter":
+            # Execute the typed command
+            if self._insert_buffer.strip():
+                self.call_later(pc.run_command_in_focused, self._insert_buffer.strip())
+            self._insert_buffer = ""
+            self._set_mode("normal")
+        elif key == "backspace":
+            self._insert_buffer = self._insert_buffer[:-1]
+            pane.command = self._insert_buffer
+            pane.command_output = ""
+            pane.refresh()
+        elif char and len(char) == 1:
+            self._insert_buffer += char
+            pane.command = self._insert_buffer
+            pane.command_output = ""
+            pane.refresh()
 
     def _handle_pane_key(self, key: str, char: str | None, event) -> None:
         """PANE mode keys. Zellij: Ctrl+p → d/v/x/h/j/k/l/r"""
