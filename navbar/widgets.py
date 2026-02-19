@@ -174,3 +174,34 @@ class ActivityBar(Static):
         """Switch to debug mode with a message."""
         self.mode = "debug"
         self.activity_text = message
+
+
+class ModeBar(Static):
+    """Color-coded status bar at the bottom showing the current mode.
+
+    Changes color based on mode:
+        NORMAL  → green (#89b482)
+        PANE    → yellow (#d8a657)
+        TAB     → blue (#7daea3)
+        RESIZE  → magenta (#d3869b)
+        SESSION → olive (#a9b665)
+
+    Also shows available keybindings for the current mode.
+    """
+
+    mode_label: reactive[str] = reactive(" NORMAL ")
+    mode_color: reactive[str] = reactive("#89b482")
+    mode_keys: reactive[str] = reactive("")
+
+    def render(self) -> str:
+        return f" {self.mode_label}  {self.mode_keys}"
+
+    def set_mode(self, label: str, color: str, keys: str) -> None:
+        """Update the mode bar display."""
+        self.mode_label = label
+        self.mode_color = color
+        self.mode_keys = keys
+        # Apply background color dynamically
+        self.styles.background = color
+        # Use dark text for light backgrounds
+        self.styles.color = "#1d2021"

@@ -1,13 +1,15 @@
-"""Zellij Navbar — Textual TUI application.
+"""Zellij Navbar — Textual TUI application with modal keybindings.
 
 A vertical sidebar navbar for Zellij terminal multiplexer, built with
 Textual. Provides tab management, pane splitting (horizontal/vertical),
 session controls, and a live clock.
 
-Zellij keybindings:
-    Ctrl+p → pane mode:  d=split-h, v=split-v, h/j/k/l=focus, x=close
-    Ctrl+t → tab mode:   n=new, x=close, r=rename, 1-9=jump
-    q = quit
+Modal keybindings (like Zellij):
+    NORMAL mode (green):  Ctrl+p → Pane, Ctrl+t → Tab, Ctrl+n → Resize, Ctrl+o → Session
+    PANE mode (yellow):   d=split-h, v=split-v, x=close, h/j/k/l=focus, Esc→Normal
+    TAB mode (blue):      n=new, r=rename, x=close, 1-9=jump, Esc→Normal
+    RESIZE mode (magenta): +/-/= grow/shrink, h/j/k/l directional, Esc→Normal
+    SESSION mode (cyan):  s=status overview, Esc→Normal
 
 Run directly:
     python -m navbar.app
@@ -23,7 +25,7 @@ from datetime import datetime
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal
+from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
 from textual.timer import Timer
 from textual.widgets import Button, Label, Static
@@ -37,35 +39,38 @@ from navbar.widgets import (
     SessionInfo,
     ClockWidget,
     ActivityBar,
+    ModeBar,
 )
 
 
-class NavbarApp(App):
-    """Zellij sidebar navbar application with split panes.
+# ---------------------------------------------------------------------------
+# Mode definitions — mirrors Zellij's modal system
+# ---------------------------------------------------------------------------
 
-    Layout: sidebar (left) | pane area (right)
+MODES = {
+    "normal":  {"label": " NORMAL ",  "color": "#89b482", "keys": "p=Pane  t=Tab  n=Resize  o=Session  q=Quit  b=Sidebar"},
+    "pane":    {"label": " PANE ",    "color": "#d8a657", "keys": "d=Split↓  v=Split→  x=Close  h/j/k/l=Focus  Esc=Normal"},
+    "tab":     {"label": " TAB ",     "color": "#7daea3", "keys": "n=New  r=Rename  1-9=Jump  h/l=Prev/Next  Esc=Normal"},
+    "resize":  {"label": " RESIZE ",  "color": "#d3869b", "keys": "+/-=Grow/Shrink  h/j/k/l=Direction  Esc=Normal"},
+    "session": {"label": " SESSION ", "color": "#a9b665", "keys": "s=Status  Esc=Normal"},
+}
+
+
+class NavbarApp(App):
+    """Zellij sidebar navbar application with modal keybindings.
+
+    Layout: sidebar (left) | pane area (right) | status bar (bottom)
     The sidebar has tabs, session info, clock, and controls.
     The pane area supports vertical/horizontal splits.
+    A color-coded status bar at the bottom shows the current mode.
     """
 
     CSS_PATH = "navbar.tcss"
 
     TITLE = "Navbar"
 
-    BINDINGS = [
-        Binding("q", "quit", "Quit"),
-        Binding("n", "new_tab", "New Tab"),
-        Binding("r", "rename_tab", "Rename"),
-        Binding("d", "split_horizontal", "Split ─"),
-        Binding("v", "split_vertical", "Split │"),
-        Binding("x", "close_pane", "Close Pane"),
-        Binding("t", "toggle_debug", "Debug"),
-        Binding("b", "toggle_sidebar", "Toggle Sidebar"),
-        Binding("plus_sign", "resize_grow", "Grow Pane"),
-        Binding("equals_sign", "resize_grow", "Grow Pane", show=False),
-        Binding("minus", "resize_shrink", "Shrink Pane"),
-        Binding("s", "toggle_status", "Status"),
-    ]
+    # All keys handled via on_key() modal dispatch — no BINDINGS needed.
+    BINDINGS = []
 
     tab_count: reactive[int] = reactive(3)
     active_tab: reactive[int] = reactive(0)
@@ -74,34 +79,37 @@ class NavbarApp(App):
     clock_time: reactive[str] = reactive("")
     sidebar_visible: reactive[bool] = reactive(True)
     status_visible: reactive[bool] = reactive(False)
+    current_mode: reactive[str] = reactive("normal")
 
     def compose(self) -> ComposeResult:
-        with Horizontal(id="main-layout"):
-            # Left sidebar
-            with self.sidebar():
-                yield NavHeader(id="nav-header")
-                yield Horizontal(
-                    Label("Session: ", classes="label-dim"),
-                    SessionInfo(id="session-info"),
-                    id="session-bar",
-                )
-                yield TabList(id="tab-list")
-                yield ActivityBar(id="activity-bar")
-                yield Horizontal(
-                    ClockWidget(id="clock"),
-                    Button("＋", id="btn-new-tab", classes="action-btn"),
-                    Button("D", id="btn-debug", classes="action-btn"),
-                    id="bottom-bar",
-                )
-            # Right pane area
-            yield PaneContainer(id="pane-container")
-            # Status overlay (hidden by default)
-            yield StatusView(id="status-view")
+        with Vertical(id="app-root"):
+            with Horizontal(id="main-layout"):
+                # Left sidebar
+                with self.sidebar():
+                    yield NavHeader(id="nav-header")
+                    yield Horizontal(
+                        Label("Session: ", classes="label-dim"),
+                        SessionInfo(id="session-info"),
+                        id="session-bar",
+                    )
+                    yield TabList(id="tab-list")
+                    yield ActivityBar(id="activity-bar")
+                    yield Horizontal(
+                        ClockWidget(id="clock"),
+                        Button("＋", id="btn-new-tab", classes="action-btn"),
+                        Button("D", id="btn-debug", classes="action-btn"),
+                        id="bottom-bar",
+                    )
+                # Right pane area
+                yield PaneContainer(id="pane-container")
+                # Status overlay (hidden by default)
+                yield StatusView(id="status-view")
+            # Bottom mode bar — always visible, full width
+            yield ModeBar(id="mode-bar")
 
     @staticmethod
     def sidebar():
         """Create the sidebar container."""
-        from textual.containers import Vertical
         return Vertical(id="sidebar")
 
     def on_mount(self) -> None:
@@ -111,6 +119,8 @@ class NavbarApp(App):
         self._build_tabs()
         # Hide status view on startup
         self.query_one("#status-view").display = False
+        # Set initial mode bar
+        self._update_mode_bar()
 
     def _update_clock(self) -> None:
         """Update the clock display."""
@@ -133,6 +143,195 @@ class NavbarApp(App):
                 pane_count=1,
             )
 
+    # --- Mode system ---
+
+    def _update_mode_bar(self) -> None:
+        """Update the mode bar display to match current mode."""
+        mode_bar = self.query_one("#mode-bar", ModeBar)
+        mode_info = MODES.get(self.current_mode, MODES["normal"])
+        mode_bar.set_mode(
+            mode_info["label"],
+            mode_info["color"],
+            mode_info["keys"],
+        )
+
+    def watch_current_mode(self, old: str, new: str) -> None:
+        """React to mode changes — update the status bar."""
+        try:
+            self._update_mode_bar()
+        except Exception:
+            pass  # Ignore during mount
+
+    def _set_mode(self, mode: str) -> None:
+        """Switch to a new mode."""
+        self.current_mode = mode
+
+    # --- Modal key dispatch ---
+
+    def on_key(self, event) -> None:
+        """Handle key presses based on current mode.
+
+        This is the heart of the modal system. Each mode has its own
+        key handlers, just like Zellij's modal keybindings.
+        """
+        mode = self.current_mode
+        key = event.key
+        char = event.character
+
+        # Escape always returns to normal mode
+        if key == "escape" and mode != "normal":
+            event.prevent_default()
+            self._set_mode("normal")
+            return
+
+        if mode == "normal":
+            self._handle_normal_key(key, char, event)
+        elif mode == "pane":
+            self._handle_pane_key(key, char, event)
+        elif mode == "tab":
+            self._handle_tab_key(key, char, event)
+        elif mode == "resize":
+            self._handle_resize_key(key, char, event)
+        elif mode == "session":
+            self._handle_session_key(key, char, event)
+
+    def _handle_normal_key(self, key: str, char: str | None, event) -> None:
+        """NORMAL mode keys — mode switching and global shortcuts.
+
+        p = enter Pane mode
+        t = enter Tab mode
+        n = enter Resize mode
+        o = enter Session mode
+        q = quit
+        b = toggle sidebar
+        """
+        if char == "q":
+            event.prevent_default()
+            self.exit()
+        elif char == "p":
+            event.prevent_default()
+            self._set_mode("pane")
+        elif char == "t":
+            event.prevent_default()
+            self._set_mode("tab")
+        elif char == "n":
+            event.prevent_default()
+            self._set_mode("resize")
+        elif char == "o":
+            event.prevent_default()
+            self._set_mode("session")
+        elif char == "b":
+            event.prevent_default()
+            self.action_toggle_sidebar()
+
+    def _handle_pane_key(self, key: str, char: str | None, event) -> None:
+        """PANE mode keys. Zellij: Ctrl+p → d/v/x/h/j/k/l/r"""
+        event.prevent_default()
+        if char == "d":
+            self.call_later(self._do_split_horizontal)
+            self._set_mode("normal")
+        elif char == "v" or char == "l":
+            self.call_later(self._do_split_vertical)
+            self._set_mode("normal")
+        elif char == "x":
+            self.call_later(self._do_close_pane)
+            self._set_mode("normal")
+        elif char == "h":
+            self.call_later(self._do_focus_direction, "left")
+        elif char == "j":
+            self.call_later(self._do_focus_direction, "down")
+        elif char == "k":
+            self.call_later(self._do_focus_direction, "up")
+        elif char == "r":
+            # TODO: interactive rename pane
+            pass
+        elif char == "n":
+            self.call_later(self._do_split_vertical)
+            self._set_mode("normal")
+
+    def _handle_tab_key(self, key: str, char: str | None, event) -> None:
+        """TAB mode keys. Zellij: Ctrl+t → n/r/x/1-9/h/l"""
+        event.prevent_default()
+        if char == "n":
+            self.action_new_tab()
+            self._set_mode("normal")
+        elif char == "r":
+            # TODO: interactive rename tab
+            pass
+        elif char == "x":
+            # TODO: close tab
+            self._set_mode("normal")
+        elif char and char.isdigit():
+            idx = int(char) - 1
+            if 0 <= idx < self.tab_count:
+                self.active_tab = idx
+            self._set_mode("normal")
+        elif char == "h":
+            # Previous tab
+            if self.active_tab > 0:
+                self.active_tab = self.active_tab - 1
+        elif char == "l":
+            # Next tab
+            if self.active_tab < self.tab_count - 1:
+                self.active_tab = self.active_tab + 1
+
+    def _handle_resize_key(self, key: str, char: str | None, event) -> None:
+        """RESIZE mode keys. Zellij: Ctrl+n → +/-/=/h/j/k/l"""
+        event.prevent_default()
+        if char in ("+", "="):
+            self.call_later(self._do_resize_grow)
+        elif char == "-":
+            self.call_later(self._do_resize_shrink)
+        elif char == "h":
+            self.call_later(self._do_resize_shrink)
+        elif char == "l":
+            self.call_later(self._do_resize_grow)
+        elif char == "j":
+            self.call_later(self._do_resize_grow)
+        elif char == "k":
+            self.call_later(self._do_resize_shrink)
+
+    def _handle_session_key(self, key: str, char: str | None, event) -> None:
+        """SESSION mode keys. Zellij: Ctrl+o → s/r/w"""
+        event.prevent_default()
+        if char == "s":
+            self.action_toggle_status()
+            self._set_mode("normal")
+
+    # --- Async action wrappers (called via call_later) ---
+
+    async def _do_split_horizontal(self) -> None:
+        pc = self.query_one("#pane-container", PaneContainer)
+        new_id = await pc.split_horizontal()
+        if new_id:
+            self._update_pane_counts()
+
+    async def _do_split_vertical(self) -> None:
+        pc = self.query_one("#pane-container", PaneContainer)
+        new_id = await pc.split_vertical()
+        if new_id:
+            self._update_pane_counts()
+
+    async def _do_close_pane(self) -> None:
+        pc = self.query_one("#pane-container", PaneContainer)
+        closed = await pc.close_pane()
+        if closed:
+            self._update_pane_counts()
+
+    async def _do_focus_direction(self, direction: str) -> None:
+        pc = self.query_one("#pane-container", PaneContainer)
+        await pc.focus_direction(direction)
+
+    async def _do_resize_grow(self) -> None:
+        pc = self.query_one("#pane-container", PaneContainer)
+        await pc.resize_focused(grow=True)
+
+    async def _do_resize_shrink(self) -> None:
+        pc = self.query_one("#pane-container", PaneContainer)
+        await pc.resize_focused(grow=False)
+
+    # --- Tab actions ---
+
     def watch_active_tab(self, old: int, new: int) -> None:
         """React to active tab changes — switch pane layout too."""
         tab_list = self.query_one("#tab-list", TabList)
@@ -143,8 +342,6 @@ class NavbarApp(App):
         # Switch the pane container to this tab's pane tree
         pc = self.query_one("#pane-container", PaneContainer)
         self.call_later(pc.switch_tab, new)
-
-    # --- Tab actions ---
 
     def action_new_tab(self) -> None:
         """Add a new tab."""
@@ -214,58 +411,27 @@ class NavbarApp(App):
             status.display = False
             pc.display = True
 
-    # --- Pane actions (Zellij pane mode) ---
+    # --- Pane actions (programmatic API) ---
 
     async def action_split_horizontal(self) -> None:
         """Split focused pane horizontally (new pane below). Zellij: Ctrl+p → d"""
-        pc = self.query_one("#pane-container", PaneContainer)
-        new_id = await pc.split_horizontal()
-        if new_id:
-            self._update_pane_counts()
+        await self._do_split_horizontal()
 
     async def action_split_vertical(self) -> None:
-        """Split focused pane vertically (new pane right). Zellij: Ctrl+p → r/v"""
-        pc = self.query_one("#pane-container", PaneContainer)
-        new_id = await pc.split_vertical()
-        if new_id:
-            self._update_pane_counts()
+        """Split focused pane vertically (new pane right). Zellij: Ctrl+p → v"""
+        await self._do_split_vertical()
 
     async def action_close_pane(self) -> None:
         """Close the focused pane. Zellij: Ctrl+p → x"""
-        pc = self.query_one("#pane-container", PaneContainer)
-        closed = await pc.close_pane()
-        if closed:
-            self._update_pane_counts()
+        await self._do_close_pane()
 
     async def action_resize_grow(self) -> None:
         """Grow the focused pane. Zellij: Ctrl+n → +/="""
-        pc = self.query_one("#pane-container", PaneContainer)
-        await pc.resize_focused(grow=True)
+        await self._do_resize_grow()
 
     async def action_resize_shrink(self) -> None:
         """Shrink the focused pane. Zellij: Ctrl+n → -"""
-        pc = self.query_one("#pane-container", PaneContainer)
-        await pc.resize_focused(grow=False)
-
-    async def action_focus_left(self) -> None:
-        """Move focus left. Zellij: Ctrl+p → h / Alt+h"""
-        pc = self.query_one("#pane-container", PaneContainer)
-        await pc.focus_direction("left")
-
-    async def action_focus_right(self) -> None:
-        """Move focus right. Zellij: Ctrl+p → l / Alt+l"""
-        pc = self.query_one("#pane-container", PaneContainer)
-        await pc.focus_direction("right")
-
-    async def action_focus_up(self) -> None:
-        """Move focus up. Zellij: Ctrl+p → k / Alt+k"""
-        pc = self.query_one("#pane-container", PaneContainer)
-        await pc.focus_direction("up")
-
-    async def action_focus_down(self) -> None:
-        """Move focus down. Zellij: Ctrl+p → j / Alt+j"""
-        pc = self.query_one("#pane-container", PaneContainer)
-        await pc.focus_direction("down")
+        await self._do_resize_shrink()
 
     def _update_pane_counts(self) -> None:
         """Update the active tab's pane count display."""
@@ -276,13 +442,6 @@ class NavbarApp(App):
             tabs[self.active_tab].pane_count = pc.pane_count
 
     # --- Event handlers ---
-
-    def on_key(self, event) -> None:
-        """Handle number key presses for tab switching and arrow focus."""
-        if event.character and event.character.isdigit():
-            idx = int(event.character) - 1
-            if 0 <= idx < self.tab_count:
-                self.active_tab = idx
 
     def on_tab_list_tab_clicked(self, event: TabList.TabClicked) -> None:
         """Handle tab clicks (bubbled up from TabList)."""
