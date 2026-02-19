@@ -73,6 +73,11 @@ class TabButton(Button):
         self.label = self._make_label(self.tab_name, value, self.pane_count)
         self.set_classes("tab-btn active-tab" if value else "tab-btn")
 
+    def rename(self, new_name: str) -> None:
+        """Rename this tab. Zellij: Ctrl+t → r."""
+        self.tab_name = new_name
+        self.label = self._make_label(new_name, self.is_active, self.pane_count)
+
 
 class TabList(VerticalScroll):
     """Scrollable list of tab buttons in the sidebar.
@@ -122,6 +127,13 @@ class TabList(VerticalScroll):
         if isinstance(event.button, TabButton):
             event.stop()
             self.post_message(self.TabClicked(event.button.index))
+
+    def rename_tab(self, index: int, new_name: str) -> bool:
+        """Rename a tab by index. Returns True if successful."""
+        if 0 <= index < len(self._tabs):
+            self._tabs[index].rename(new_name)
+            return True
+        return False
 
     @property
     def tab_items(self) -> list[TabButton]:

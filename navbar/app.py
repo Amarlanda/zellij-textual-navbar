@@ -150,8 +150,21 @@ class NavbarApp(App):
         )
 
     def action_rename_tab(self) -> None:
-        """Rename the active tab (placeholder)."""
+        """Rename the active tab. Zellij: Ctrl+t → r.
+
+        For programmatic/test use, call rename_active_tab(name) directly.
+        """
         pass
+
+    def rename_active_tab(self, new_name: str) -> bool:
+        """Rename the currently active tab programmatically."""
+        tab_list = self.query_one("#tab-list", TabList)
+        return tab_list.rename_tab(self.active_tab, new_name)
+
+    def rename_focused_pane(self, new_name: str) -> bool:
+        """Rename the currently focused pane programmatically."""
+        pc = self.query_one("#pane-container", PaneContainer)
+        return pc.rename_focused_pane(new_name)
 
     def action_toggle_debug(self) -> None:
         """Toggle debug mode."""

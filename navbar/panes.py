@@ -519,6 +519,29 @@ class PaneContainer(Container):
         """Run a command in the currently focused pane."""
         return await self.run_command_in_pane(self._focused_pane_id, command)
 
+    # --- Rename ---
+
+    def rename_focused_pane(self, new_name: str) -> bool:
+        """Rename the focused pane. Zellij: Ctrl+p → c.
+
+        Returns True if renamed successfully.
+        """
+        pane = self._panes.get(self._focused_pane_id)
+        if pane is None:
+            return False
+        pane.pane_name = new_name
+        pane.refresh()
+        return True
+
+    def rename_pane(self, pane_id: str, new_name: str) -> bool:
+        """Rename a specific pane by ID."""
+        pane = self._panes.get(pane_id)
+        if pane is None:
+            return False
+        pane.pane_name = new_name
+        pane.refresh()
+        return True
+
     # --- Resize ---
 
     RESIZE_STEP = 0.2  # 20% weight change per resize action
