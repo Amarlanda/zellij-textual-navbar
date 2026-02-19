@@ -1,0 +1,110 @@
+/* Zellij Navbar — Textual CSS */
+
+Screen {
+    layout: vertical;
+    background: $surface;
+}
+
+/* Header */
+#nav-header {
+    dock: top;
+    height: 3;
+    content-align: center middle;
+    background: $primary;
+    color: $text;
+    text-style: bold;
+    padding: 0 1;
+}
+
+/* Session bar */
+#session-bar {
+    height: 1;
+    background: $primary-darken-2;
+    padding: 0 1;
+}
+
+#session-bar .label-dim {
+    color: $text-muted;
+}
+
+#session-info {
+    color: $success;
+}
+
+/* Tab list */
+#tab-list {
+    height: 1fr;
+    padding: 0;
+    background: $surface;
+}
+
+.tab-btn {
+    width: 100%;
+    height: 3;
+    margin: 0;
+    border: none;
+    background: $surface;
+    color: $text;
+    text-align: left;
+    padding: 0 1;
+}
+
+.tab-btn:hover {
+    background: $primary-lighten-1;
+}
+
+.tab-btn:focus {
+    background: $accent;
+}
+
+.active-tab {
+    background: $primary;
+    color: $text;
+    text-style: bold;
+}
+
+.active-tab:hover {
+    background: $primary-lighten-1;
+}
+
+.pane-label {
+    padding: 0 2;
+    color: $text-muted;
+    height: 1;
+}
+
+/* Activity bar */
+#activity-bar {
+    dock: bottom;
+    height: 1;
+    background: $primary-darken-1;
+    color: $text;
+    padding: 0 1;
+}
+
+/* Bottom bar */
+#bottom-bar {
+    dock: bottom;
+    height: 3;
+    background: $primary-darken-2;
+    padding: 0 1;
+    align: center middle;
+}
+
+#clock {
+    width: 1fr;
+    content-align: left middle;
+    color: $text-muted;
+}
+
+.action-btn {
+    width: 5;
+    min-width: 5;
+    height: 3;
+    margin: 0 0 0 1;
+    background: $accent;
+}
+
+.action-btn:hover {
+    background: $accent-lighten-1;
+}
