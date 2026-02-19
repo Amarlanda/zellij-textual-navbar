@@ -2,7 +2,7 @@
 
 Implements a binary tree of panes that can be split horizontally or
 vertically. Each pane is a Textual widget with a border showing its
-name and focus state.
+name and focus state. Panes can run shell commands and display output.
 
 Zellij keybindings replicated:
     Ctrl+p → pane mode:
@@ -16,6 +16,7 @@ Zellij keybindings replicated:
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -97,6 +98,33 @@ class Pane(Static):
     def set_output(self, output: str) -> None:
         """Set the command output text."""
         self.command_output = output
+
+    async def run_command(self, cmd: str) -> None:
+        """Run a shell command and display its output.
+
+        The command is run via subprocess. Output is captured
+        and displayed in the pane. The command is stored so it
+        survives layout rebuilds.
+        """
+        self.command = cmd
+        self.command_output = "running..."
+        self.refresh()
+
+        try:
+            proc = await asyncio.create_subprocess_shell(
+                cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10.0)
+            output = stdout.decode("utf-8", errors="replace").strip() if stdout else ""
+            self.command_output = output if output else "(no output)"
+        except asyncio.TimeoutError:
+            self.command_output = "(timeout)"
+        except Exception as e:
+            self.command_output = f"(error: {e})"
+
+        self.refresh()
 
 
 # ---------------------------------------------------------------------------
@@ -180,6 +208,7 @@ class PaneContainer(Container):
         self._tree = PaneNode(pane_id=self._next_pane_id())
         self._focused_pane_id: str = self._tree.pane_id or ""
         self._panes: dict[str, Pane] = {}
+        self._pending_commands: dict[str, str] = {}  # pane_id → command to run after rebuild
 
     def _next_pane_id(self) -> str:
         """Generate a unique pane ID."""
@@ -235,6 +264,12 @@ class PaneContainer(Container):
         if self._focused_pane_id in self._panes:
             self._panes[self._focused_pane_id].is_focused_pane = True
 
+        # Run any pending commands for new panes
+        for pid, cmd in list(self._pending_commands.items()):
+            if pid in self._panes and cmd:
+                self.call_later(self._panes[pid].run_command, cmd)
+        self._pending_commands.clear()
+
         self.post_message(self.PaneCountChanged(self.pane_count))
 
     def _build_widget(
@@ -266,21 +301,21 @@ class PaneContainer(Container):
 
         return container
 
-    async def split_horizontal(self) -> str:
+    async def split_horizontal(self, command: str = "") -> str:
         """Split the focused pane horizontally (new pane below).
 
         Returns the ID of the new pane.
         """
-        return await self._split("horizontal")
+        return await self._split("horizontal", command=command)
 
-    async def split_vertical(self) -> str:
+    async def split_vertical(self, command: str = "") -> str:
         """Split the focused pane vertically (new pane right).
 
         Returns the ID of the new pane.
         """
-        return await self._split("vertical")
+        return await self._split("vertical", command=command)
 
-    async def _split(self, direction: str) -> str:
+    async def _split(self, direction: str, command: str = "") -> str:
         """Split the focused pane in the given direction."""
         new_id = self._next_pane_id()
         focused_node = self._tree.find_leaf(self._focused_pane_id)
@@ -296,6 +331,10 @@ class PaneContainer(Container):
         old_child = PaneNode(pane_id=old_id, parent=focused_node)
         new_child = PaneNode(pane_id=new_id, parent=focused_node)
         focused_node.children = [old_child, new_child]
+
+        # Store command to run after rebuild
+        if command:
+            self._pending_commands[new_id] = command
 
         await self.rebuild_layout()
 
@@ -408,3 +447,18 @@ class PaneContainer(Container):
     def get_pane(self, pane_id: str) -> Optional[Pane]:
         """Get a pane widget by ID."""
         return self._panes.get(pane_id)
+
+    async def run_command_in_pane(self, pane_id: str, command: str) -> bool:
+        """Run a command in a specific pane.
+
+        Returns True if the command was started.
+        """
+        pane = self._panes.get(pane_id)
+        if pane is None:
+            return False
+        await pane.run_command(command)
+        return True
+
+    async def run_command_in_focused(self, command: str) -> bool:
+        """Run a command in the currently focused pane."""
+        return await self.run_command_in_pane(self._focused_pane_id, command)
