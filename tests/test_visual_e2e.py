@@ -177,29 +177,36 @@ class TestFullWorkflow:
             assert pane is not None
             assert pane.command == "echo hello"
 
-            # Press Enter to execute
+            # Press Enter to execute — stays in insert mode (like a real terminal)
             await pilot.press("enter")
             await pilot.pause()
             await pilot.pause()
             await pilot.pause(VISIBLE_PAUSE)
-            assert app.current_mode == "normal"
-            assert "hello" in pane.command_output
+            assert app.current_mode == "insert"
 
-            # 6. Split again and type another command via insert mode
+            # Command should be in history now
+            assert len(pane.command_history) >= 1
+            assert pane.command == ""  # Ready for next command
+
+            # Type another command without leaving insert mode
+            for ch in "date":
+                await pilot.press(ch)
+            await pilot.press("enter")
+            await pilot.pause()
+            await pilot.pause(VISIBLE_PAUSE)
+
+            # Escape back to normal to split again
+            await pilot.press("escape")
+            await pilot.pause()
+            assert app.current_mode == "normal"
+
+            # 6. Split again
             await pilot.press("p")
             await pilot.pause()
             await pilot.press("d")
             await pilot.pause(VISIBLE_PAUSE)
             await pilot.pause()
             assert pc.pane_count == 3
-
-            await pilot.press("i")
-            await pilot.pause()
-            for ch in "date":
-                await pilot.press(ch)
-            await pilot.press("enter")
-            await pilot.pause()
-            await pilot.pause(VISIBLE_PAUSE)
 
     async def test_tab_mode_jump_and_navigate(self):
         """Tab mode: jump to tabs with 1-9, navigate with h/l."""
@@ -407,3 +414,79 @@ class TestSidebarAndClicks:
             assert pane is not None
             assert pane.pane_name == "Main Terminal"
             await pilot.pause(VISIBLE_PAUSE)
+
+    async def test_click_pane_enters_insert_mode(self):
+        """Bug: Clicking a pane should enter INSERT mode like a real terminal.
+
+        When you click into a terminal, you expect to be able to type.
+        The status bar should turn red (INSERT) and the pane should
+        show a blinking cursor prompt.
+        """
+        app = NavbarApp()
+        async with app.run_test(headless=HEADLESS, size=SIZE) as pilot:
+            await pilot.pause(VISIBLE_PAUSE)
+
+            pc = app.query_one("#pane-container", PaneContainer)
+            mb = app.query_one("#mode-bar", ModeBar)
+
+            # Start in normal mode
+            assert app.current_mode == "normal"
+
+            # Split to get two panes
+            await pilot.press("p")
+            await pilot.pause()
+            await pilot.press("v")
+            await pilot.pause(VISIBLE_PAUSE)
+            await pilot.pause()
+
+            first_id = pc.all_pane_ids[0]
+            second_id = pc.all_pane_ids[1]
+
+            # Escape back to normal first
+            await pilot.press("escape")
+            await pilot.pause()
+
+            # Click the first pane — should enter insert mode
+            await pilot.click(f"#{first_id}")
+            await pilot.pause(VISIBLE_PAUSE)
+            assert app.current_mode == "insert"
+            assert "INSERT" in mb.mode_label
+            assert pc.focused_pane_id == first_id
+
+            # Type a command and press Enter
+            for ch in "echo hi":
+                await pilot.press(ch)
+            await pilot.pause(VISIBLE_PAUSE)
+
+            pane = pc.get_pane(first_id)
+            assert pane is not None
+            assert pane.command == "echo hi"
+
+            await pilot.press("enter")
+            await pilot.pause()
+            await pilot.pause()
+            await pilot.pause(VISIBLE_PAUSE)
+
+            # After Enter, should still be in insert mode (like a real terminal)
+            assert app.current_mode == "insert"
+
+            # Command should be in history, prompt should be clean for next command
+            assert len(pane.command_history) == 1
+            assert pane.command_history[0][0] == "echo hi"
+            assert pane.command == ""
+
+            # Type another command
+            for ch in "pwd":
+                await pilot.press(ch)
+            await pilot.press("enter")
+            await pilot.pause()
+            await pilot.pause()
+            await pilot.pause(VISIBLE_PAUSE)
+
+            assert len(pane.command_history) == 2
+
+            # Escape to normal
+            await pilot.press("escape")
+            await pilot.pause(VISIBLE_PAUSE)
+            assert app.current_mode == "normal"
+            assert "NORMAL" in mb.mode_label

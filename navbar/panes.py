@@ -45,7 +45,13 @@ class Pane(Static):
     command_output: reactive[str] = reactive("")
 
     class Focused(Message):
-        """Emitted when a pane gains focus."""
+        """Emitted when a pane gains focus (programmatic or click)."""
+        def __init__(self, pane_id: str) -> None:
+            self.pane_id = pane_id
+            super().__init__()
+
+    class Clicked(Message):
+        """Emitted when user physically clicks a pane (mouse click only)."""
         def __init__(self, pane_id: str) -> None:
             self.pane_id = pane_id
             super().__init__()
@@ -55,6 +61,9 @@ class Pane(Static):
         def __init__(self, pane_id: str) -> None:
             self.pane_id = pane_id
             super().__init__()
+
+    # Track whether the app is in insert mode (set by NavbarApp)
+    insert_mode: reactive[bool] = reactive(False)
 
     def __init__(
         self,
@@ -67,6 +76,7 @@ class Pane(Static):
         self.pane_name = pane_name
         self.command = command
         self.command_output = ""
+        self.command_history: list[tuple[str, str]] = []  # [(cmd, output), ...]
         self.can_focus = True
 
     def render(self) -> str:
@@ -75,18 +85,40 @@ class Pane(Static):
         header = f"{border_char * 2} {focus_marker} {self.pane_name} {border_char * 2}"
 
         lines = [header]
+
+        # Show command history (like a real terminal scrollback)
+        for cmd, output in self.command_history:
+            lines.append(f"$ {cmd}")
+            if output:
+                lines.append(output)
+
+        # Show current command line
         if self.command:
-            lines.append(f"$ {self.command}")
-        if self.command_output:
+            cursor = "█" if (self.is_focused_pane and self.insert_mode) else ""
+            lines.append(f"$ {self.command}{cursor}")
+        if self.command_output and not self.command_history:
+            # Only show command_output if not already in history
             lines.append(self.command_output)
-        if not self.command and not self.command_output:
-            lines.append("$ ")
+        elif self.command_output and self.command:
+            lines.append(self.command_output)
+
+        # Empty prompt when nothing typed
+        if not self.command and not self.command_output and not self.command_history:
+            cursor = "█" if (self.is_focused_pane and self.insert_mode) else ""
+            lines.append(f"$ {cursor}")
+        elif not self.command and not self.command_output and self.command_history:
+            cursor = "█" if (self.is_focused_pane and self.insert_mode) else ""
+            lines.append(f"$ {cursor}")
 
         return "\n".join(lines)
 
     def on_click(self) -> None:
-        """When clicked, emit a Focused message."""
+        """When clicked, emit Focused and Clicked messages.
+
+        Clicked is used by NavbarApp to enter INSERT mode.
+        """
         self.post_message(self.Focused(self.id or ""))
+        self.post_message(self.Clicked(self.id or ""))
 
     def watch_is_focused_pane(self, value: bool) -> None:
         """Update styling when focus changes."""
@@ -103,8 +135,9 @@ class Pane(Static):
         """Run a shell command and display its output.
 
         The command is run via subprocess. Output is captured
-        and displayed in the pane. The command is stored so it
-        survives layout rebuilds.
+        and displayed in the pane. After completion, the command
+        and output are added to history so the pane scrollback
+        looks like a real terminal.
         """
         self.command = cmd
         self.command_output = "running..."
@@ -124,6 +157,10 @@ class Pane(Static):
         except Exception as e:
             self.command_output = f"(error: {e})"
 
+        # Add to history and clear current line (ready for next command)
+        self.command_history.append((cmd, self.command_output))
+        self.command = ""
+        self.command_output = ""
         self.refresh()
 
 
@@ -495,10 +532,21 @@ class PaneContainer(Container):
 
         await self.focus_pane(ids[new_idx])
 
+    class PaneClicked(Message):
+        """Emitted when user physically clicks a pane. Bubbled to app."""
+        def __init__(self, pane_id: str) -> None:
+            self.pane_id = pane_id
+            super().__init__()
+
     def on_pane_focused(self, event: Pane.Focused) -> None:
         """Handle pane click-to-focus."""
         event.stop()
         self.call_later(self.focus_pane, event.pane_id)
+
+    def on_pane_clicked(self, event: Pane.Clicked) -> None:
+        """Handle pane mouse click — bubble up as PaneClicked."""
+        event.stop()
+        self.post_message(self.PaneClicked(event.pane_id))
 
     def get_pane(self, pane_id: str) -> Optional[Pane]:
         """Get a pane widget by ID."""

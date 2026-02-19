@@ -125,11 +125,13 @@ class NavbarApp(App):
         self._update_mode_bar()
 
     def _update_clock(self) -> None:
-        """Update the clock display."""
-        self.clock_time = datetime.now().strftime("%H:%M:%S")
+        """Update the clock display with date and time."""
+        now = datetime.now()
+        self.clock_time = now.strftime("%H:%M:%S")
+        date_str = now.strftime("%a %d %b")
         try:
             clock = self.query_one("#clock", ClockWidget)
-            clock.update_time(self.clock_time)
+            clock.update_time(self.clock_time, date_str)
         except Exception:
             pass  # Clock widget may not be in DOM yet or sidebar hidden
 
@@ -176,6 +178,17 @@ class NavbarApp(App):
     def _set_mode(self, mode: str) -> None:
         """Switch to a new mode."""
         self.current_mode = mode
+        self._sync_insert_mode_to_panes()
+
+    def _sync_insert_mode_to_panes(self) -> None:
+        """Tell panes whether we're in insert mode so they can show cursor."""
+        try:
+            pc = self.query_one("#pane-container", PaneContainer)
+            is_insert = self.current_mode == "insert"
+            for pane in pc._panes.values():
+                pane.insert_mode = is_insert
+        except Exception:
+            pass
 
     # --- Modal key dispatch ---
 
@@ -245,7 +258,8 @@ class NavbarApp(App):
     def _handle_insert_key(self, key: str, char: str | None, event) -> None:
         """INSERT mode — type commands into the focused pane.
 
-        Characters are buffered. Enter executes the command.
+        Characters are buffered and shown live with a cursor.
+        Enter executes the command (stays in insert mode — like a real terminal).
         Backspace deletes. Escape returns to normal mode.
         """
         event.prevent_default()
@@ -255,13 +269,19 @@ class NavbarApp(App):
             return
 
         if key == "enter":
-            # Execute the typed command
+            # Execute the typed command — stay in insert mode like a real terminal
             if self._insert_buffer.strip():
                 self.call_later(pc.run_command_in_focused, self._insert_buffer.strip())
             self._insert_buffer = ""
-            self._set_mode("normal")
+            pane.command = ""
+            pane.refresh()
         elif key == "backspace":
             self._insert_buffer = self._insert_buffer[:-1]
+            pane.command = self._insert_buffer
+            pane.command_output = ""
+            pane.refresh()
+        elif key == "space":
+            self._insert_buffer += " "
             pane.command = self._insert_buffer
             pane.command_output = ""
             pane.refresh()
@@ -509,6 +529,13 @@ class NavbarApp(App):
         activity.update_activity(
             f"Tab {self.active_tab + 1}", event.pane_name
         )
+
+    def on_pane_container_pane_clicked(
+        self, event: PaneContainer.PaneClicked
+    ) -> None:
+        """User clicked a pane — enter INSERT mode like a real terminal."""
+        self._insert_buffer = ""
+        self._set_mode("insert")
 
     def on_pane_container_pane_count_changed(
         self, event: PaneContainer.PaneCountChanged

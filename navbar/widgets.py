@@ -12,11 +12,14 @@ from textual.reactive import reactive
 from textual.widgets import Button, Static
 
 
+BUILD_NUMBER = "0.2.0"
+
+
 class NavHeader(Static):
-    """Top header bar showing NAVBAR title and render info."""
+    """Top header bar showing NAVBAR title and build number."""
 
     def render(self) -> str:
-        return "▌ NAVBAR ▐"
+        return f"▌ NAVBAR ▐  v{BUILD_NUMBER}"
 
 
 class SessionInfo(Static):
@@ -142,16 +145,19 @@ class TabList(VerticalScroll):
 
 
 class ClockWidget(Static):
-    """Live clock display updated every second."""
+    """Live clock display with date and time."""
 
     time_str: reactive[str] = reactive("--:--:--")
+    date_str: reactive[str] = reactive("")
 
     def render(self) -> str:
-        return f"🕐 {self.time_str}"
+        return f"📅 {self.date_str}\n🕐 {self.time_str}"
 
-    def update_time(self, time_str: str) -> None:
-        """Update the displayed time."""
+    def update_time(self, time_str: str, date_str: str = "") -> None:
+        """Update the displayed time and date."""
         self.time_str = time_str
+        if date_str:
+            self.date_str = date_str
 
 
 class ActivityBar(Static):
