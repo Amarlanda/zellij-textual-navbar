@@ -60,6 +60,9 @@ class NavbarApp(App):
         Binding("x", "close_pane", "Close Pane"),
         Binding("t", "toggle_debug", "Debug"),
         Binding("b", "toggle_sidebar", "Toggle Sidebar"),
+        Binding("plus_sign", "resize_grow", "Grow Pane"),
+        Binding("equals_sign", "resize_grow", "Grow Pane", show=False),
+        Binding("minus", "resize_shrink", "Shrink Pane"),
     ]
 
     tab_count: reactive[int] = reactive(3)
@@ -192,6 +195,16 @@ class NavbarApp(App):
         closed = await pc.close_pane()
         if closed:
             self._update_pane_counts()
+
+    async def action_resize_grow(self) -> None:
+        """Grow the focused pane. Zellij: Ctrl+n → +/="""
+        pc = self.query_one("#pane-container", PaneContainer)
+        await pc.resize_focused(grow=True)
+
+    async def action_resize_shrink(self) -> None:
+        """Shrink the focused pane. Zellij: Ctrl+n → -"""
+        pc = self.query_one("#pane-container", PaneContainer)
+        await pc.resize_focused(grow=False)
 
     async def action_focus_left(self) -> None:
         """Move focus left. Zellij: Ctrl+p → h / Alt+h"""

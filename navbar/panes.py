@@ -136,12 +136,14 @@ class PaneNode:
     """Binary tree node representing the pane layout.
 
     A leaf node holds a pane_id. A split node holds two children
-    and a split direction.
+    and a split direction. Each node has a size_weight controlling
+    how much space it takes relative to siblings.
     """
     pane_id: Optional[str] = None         # Only for leaf nodes
     split: Optional[str] = None           # "horizontal" or "vertical"
     children: list[PaneNode] = field(default_factory=list)
     parent: Optional[PaneNode] = None
+    size_weight: float = 1.0              # Relative size among siblings
 
     @property
     def is_leaf(self) -> bool:
@@ -298,7 +300,8 @@ class PaneContainer(Container):
         self.post_message(self.PaneCountChanged(self.pane_count))
 
     def _build_widget(
-        self, node: PaneNode, saved: dict[str, tuple[str, str, str]]
+        self, node: PaneNode, saved: dict[str, tuple[str, str, str]],
+        parent_split: Optional[str] = None,
     ) -> Widget:
         """Recursively build widgets from the pane tree."""
         if node.is_leaf:
@@ -314,17 +317,45 @@ class PaneContainer(Container):
                 pid, name, cmd, is_focused=(pid == self._focused_pane_id)
             )
             pane.command_output = output
+            # Apply size weight from parent's split direction
+            self._apply_size_weight(pane, node, parent_split)
             return pane
 
         # Split node — build a container
-        children = [self._build_widget(c, saved) for c in node.children]
+        children = [
+            self._build_widget(c, saved, parent_split=node.split)
+            for c in node.children
+        ]
 
         if node.split == "horizontal":
             container = Vertical(*children, classes="pane-split-h")
         else:
             container = Horizontal(*children, classes="pane-split-v")
 
+        # Apply size weight to the container itself (if nested)
+        self._apply_size_weight(container, node, parent_split)
+
         return container
+
+    @staticmethod
+    def _apply_size_weight(
+        widget: Widget, node: PaneNode, parent_split: Optional[str]
+    ) -> None:
+        """Apply CSS size based on node's weight and parent's split direction."""
+        if parent_split is None:
+            return  # Root node — fills all space via CSS
+
+        # Calculate percentage from weight relative to siblings
+        if node.parent and node.parent.children:
+            total = sum(c.size_weight for c in node.parent.children)
+            pct = (node.size_weight / total) * 100 if total > 0 else 50
+        else:
+            pct = 100
+
+        if parent_split == "vertical":
+            widget.styles.width = f"{pct:.1f}%"
+        elif parent_split == "horizontal":
+            widget.styles.height = f"{pct:.1f}%"
 
     async def split_horizontal(self, command: str = "") -> str:
         """Split the focused pane horizontally (new pane below).
@@ -487,6 +518,58 @@ class PaneContainer(Container):
     async def run_command_in_focused(self, command: str) -> bool:
         """Run a command in the currently focused pane."""
         return await self.run_command_in_pane(self._focused_pane_id, command)
+
+    # --- Resize ---
+
+    RESIZE_STEP = 0.2  # 20% weight change per resize action
+    MIN_WEIGHT = 0.2   # Minimum weight to prevent panes from disappearing
+
+    async def resize_focused(self, grow: bool = True) -> bool:
+        """Resize the focused pane (grow or shrink).
+
+        Adjusts the size_weight of the focused pane's node and
+        its sibling proportionally. Returns True if resized.
+
+        Zellij: Ctrl+n mode → +/= to grow, - to shrink
+        """
+        focused_node = self._tree.find_leaf(self._focused_pane_id)
+        if focused_node is None or focused_node.parent is None:
+            return False  # Root pane can't be resized
+
+        parent = focused_node.parent
+        if len(parent.children) < 2:
+            return False
+
+        # Find sibling
+        sibling = None
+        for child in parent.children:
+            if child is not focused_node:
+                sibling = child
+                break
+        if sibling is None:
+            return False
+
+        step = self.RESIZE_STEP
+        if grow:
+            # Grow focused, shrink sibling
+            if sibling.size_weight - step < self.MIN_WEIGHT:
+                return False
+            focused_node.size_weight += step
+            sibling.size_weight -= step
+        else:
+            # Shrink focused, grow sibling
+            if focused_node.size_weight - step < self.MIN_WEIGHT:
+                return False
+            focused_node.size_weight -= step
+            sibling.size_weight += step
+
+        await self.rebuild_layout()
+        return True
+
+    def get_focused_weight(self) -> float:
+        """Get the size weight of the focused pane."""
+        node = self._tree.find_leaf(self._focused_pane_id)
+        return node.size_weight if node else 1.0
 
     # --- Tab ownership ---
 
