@@ -310,18 +310,18 @@ class TestKeyboardShortcuts:
 
             assert app.tab_count == initial + 1
 
-    async def test_d_key_toggles_debug(self):
-        """Pressing 'd' should toggle debug mode."""
+    async def test_t_key_toggles_debug(self):
+        """Pressing 't' should toggle debug mode."""
         app = NavbarApp()
         async with app.run_test(headless=HEADLESS, size=SIZE) as pilot:
             await pilot.pause(VISIBLE_PAUSE)
 
-            await pilot.press("d")
+            await pilot.press("t")
             await pilot.pause()
             await pilot.pause(VISIBLE_PAUSE)
             assert app.debug_mode is True
 
-            await pilot.press("d")
+            await pilot.press("t")
             await pilot.pause()
             await pilot.pause(VISIBLE_PAUSE)
             assert app.debug_mode is False

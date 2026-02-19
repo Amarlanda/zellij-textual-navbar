@@ -1,13 +1,31 @@
 /* Zellij Navbar — Textual CSS */
+/* Layout: sidebar (left) | pane area (right) */
 
 Screen {
-    layout: vertical;
+    layout: horizontal;
     background: $surface;
+}
+
+/* ─── Main Layout ─── */
+
+#main-layout {
+    width: 100%;
+    height: 100%;
+}
+
+/* ─── Left Sidebar ─── */
+
+#sidebar {
+    width: 24;
+    min-width: 20;
+    max-width: 30;
+    height: 100%;
+    background: $surface;
+    border-right: solid $primary;
 }
 
 /* Header */
 #nav-header {
-    dock: top;
     height: 3;
     content-align: center middle;
     background: $primary;
@@ -67,12 +85,6 @@ Screen {
     background: $primary-lighten-1;
 }
 
-.pane-label {
-    padding: 0 2;
-    color: $text-muted;
-    height: 1;
-}
-
 /* Activity bar */
 #activity-bar {
     dock: bottom;
@@ -107,4 +119,39 @@ Screen {
 
 .action-btn:hover {
     background: $accent-lighten-1;
+}
+
+/* ─── Pane Area (right side) ─── */
+
+#pane-container {
+    width: 1fr;
+    height: 100%;
+    background: $surface-darken-1;
+    padding: 0;
+}
+
+/* Individual panes */
+Pane {
+    width: 1fr;
+    height: 1fr;
+    border: round $primary-darken-2;
+    padding: 1;
+    background: $surface;
+    color: $text;
+}
+
+Pane.focused-pane {
+    border: round $accent;
+    background: $surface;
+}
+
+/* Split containers */
+.pane-split-h {
+    width: 1fr;
+    height: 1fr;
+}
+
+.pane-split-v {
+    width: 1fr;
+    height: 1fr;
 }
