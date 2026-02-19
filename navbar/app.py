@@ -29,6 +29,7 @@ from textual.timer import Timer
 from textual.widgets import Button, Label, Static
 
 from navbar.panes import Pane, PaneContainer
+from navbar.status import StatusView
 from navbar.widgets import (
     NavHeader,
     TabButton,
@@ -63,6 +64,7 @@ class NavbarApp(App):
         Binding("plus_sign", "resize_grow", "Grow Pane"),
         Binding("equals_sign", "resize_grow", "Grow Pane", show=False),
         Binding("minus", "resize_shrink", "Shrink Pane"),
+        Binding("s", "toggle_status", "Status"),
     ]
 
     tab_count: reactive[int] = reactive(3)
@@ -71,6 +73,7 @@ class NavbarApp(App):
     debug_mode: reactive[bool] = reactive(False)
     clock_time: reactive[str] = reactive("")
     sidebar_visible: reactive[bool] = reactive(True)
+    status_visible: reactive[bool] = reactive(False)
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="main-layout"):
@@ -92,6 +95,8 @@ class NavbarApp(App):
                 )
             # Right pane area
             yield PaneContainer(id="pane-container")
+            # Status overlay (hidden by default)
+            yield StatusView(id="status-view")
 
     @staticmethod
     def sidebar():
@@ -104,6 +109,8 @@ class NavbarApp(App):
         self._clock_timer: Timer = self.set_interval(1.0, self._update_clock)
         self._update_clock()
         self._build_tabs()
+        # Hide status view on startup
+        self.query_one("#status-view").display = False
 
     def _update_clock(self) -> None:
         """Update the clock display."""
@@ -185,6 +192,27 @@ class NavbarApp(App):
         """Show/hide the sidebar."""
         sidebar = self.query_one("#sidebar")
         sidebar.display = value
+
+    # --- Status tab ---
+
+    def action_toggle_status(self) -> None:
+        """Toggle status overview. Zellij: Ctrl+o → session manager."""
+        self.status_visible = not self.status_visible
+
+    def watch_status_visible(self, value: bool) -> None:
+        """Show/hide the status view, hiding/showing panes."""
+        status = self.query_one("#status-view", StatusView)
+        pc = self.query_one("#pane-container", PaneContainer)
+
+        if value:
+            # Refresh status data and show
+            tab_list = self.query_one("#tab-list", TabList)
+            status.refresh_status(tab_list, pc, self.active_tab)
+            status.display = True
+            pc.display = False
+        else:
+            status.display = False
+            pc.display = True
 
     # --- Pane actions (Zellij pane mode) ---
 

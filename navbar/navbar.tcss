@@ -155,3 +155,14 @@ Pane.focused-pane {
     width: 1fr;
     height: 1fr;
 }
+
+/* ─── Status View ─── */
+
+#status-view {
+    width: 1fr;
+    height: 100%;
+    background: $surface;
+    color: $text;
+    padding: 2 3;
+    border: round $accent;
+}
